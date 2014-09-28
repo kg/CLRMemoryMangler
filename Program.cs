@@ -49,9 +49,6 @@ namespace CLRMemoryMangler {
                 int wasLoading = 0;
                 string previousMapName = null;
                 while (true) {
-                    while (!pm.Heap.CanWalkHeap)
-                        Thread.Sleep(0);
-
                     int isLoading = 0;
 
                     // Find the app singleton in a static local
@@ -62,7 +59,7 @@ namespace CLRMemoryMangler {
 
                         if (screenItems.HasValue) {
                             // Scan through all the active screens to find a loading screen
-                            for (int i = 0; i < screenItems.Value.Count; i++) {
+                            for (int i = 0, l = screenItems.Value.Count; i < l; i++) {
                                 var screen = screenItems.Value[i];
                                 
                                 // Null so we're at the end of the list
