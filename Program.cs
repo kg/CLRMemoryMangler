@@ -28,23 +28,22 @@ namespace CLRMemoryMangler {
             Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
 
             using (var pm = AttachToProcess("bastion")) {
-                var primaryAppDomain = pm.Runtime.AppDomains.First();
-                var tApp = pm.Heap.GetTypeByName("GSGE.App");
-                var fSingletonApp = tApp.GetStaticFieldByName("SingletonApp");
+                var fApp = new StaticField(pm.Runtime, "GSGE.App", "SingletonApp");
+
                 var tList = 
                     // CLR 4.x
                     pm.Heap.GetTypeByName("System.Collections.Generic.List<T>")
                     ?? 
                     // CLR 2.x
                     pm.Heap.GetTypeByName("System.Collections.Generic.List`1");
-                var tWorld = pm.Heap.GetTypeByName("GSGE.World");
-                var fWorldState = tWorld.GetStaticFieldByName("m_state");
-                var tWorldState = pm.Heap.GetTypeByName("GSGE.World+State");
-                var fMapName = tWorldState.GetFieldByName("<MapName>k__BackingField");
+
+                var fWorldState = new StaticField(pm.Runtime, "GSGE.World", "m_state");
+                var fMapName = fWorldState.Type.GetFieldByName("<MapName>k__BackingField");
+
                 var tLoadScreen = pm.Heap.GetTypeByName("GSGE.Code.GUI.LoadScreen");
                 var tScreen = pm.Heap.GetTypeByName("GSGE.GameScreen");
 
-                if (fWorldState.GetFieldAddress(primaryAppDomain) == 0)
+                if (!fWorldState.IsAccessible)
                     Console.WriteLine("Static fields not accessible. Make sure Bastion is running under CLR 4.0, not 2.0.");
 
                 int wasLoading = 0;
@@ -56,12 +55,10 @@ namespace CLRMemoryMangler {
                     int isLoading = 0;
 
                     // Find the app singleton in a static local
-                    var singletonAppAddress = (ulong)fSingletonApp.GetFieldValue(primaryAppDomain);
-                    if (pm.Heap.GetObjectType(singletonAppAddress).Index == tApp.Index) {
-                        var app = new ValuePointer(singletonAppAddress, tApp);
-
+                    var app = fApp.Value;
+                    if (app != null) {
                         // Now pull out the screen array from the app's screenmanager
-                        var screenItems = GetScreenArray(app, tList, tScreen);
+                        var screenItems = GetScreenArray(app.Value, tList, tScreen);
 
                         if (screenItems.HasValue) {
                             // Scan through all the active screens to find a loading screen
@@ -87,10 +84,10 @@ namespace CLRMemoryMangler {
                     }
 
                     // Find the static field containing the current world state
-                    var worldState = fWorldState.GetFieldValue(primaryAppDomain);
+                    var worldState = fWorldState.Value;
                     if (worldState != null) {
                         // Figure out the map name
-                        var mapName = (string)fMapName.GetFieldValue((ulong)worldState);
+                        var mapName = (string)fMapName.GetFieldValue(worldState.Value.Address);
 
                         if (mapName != previousMapName) {
                             Console.WriteLine("Map {0} -> {1}", previousMapName, mapName);

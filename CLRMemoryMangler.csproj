@@ -63,6 +63,7 @@
   <ItemGroup>
     <Compile Include="ProcessMangler.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="StaticField.cs" />
     <Compile Include="Upstream\Options.cs" />
     <Compile Include="ValuePointer.cs" />
   </ItemGroup>
