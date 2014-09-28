@@ -10,18 +10,18 @@ using Microsoft.Diagnostics.Runtime.Interop;
 
 namespace CLRMemoryMangler {
     class Program {
-        static ValuePointer? GetScreenArray (ProcessMangler pm, ClrType appType, ClrType listType) {
-            try {
-                var _game = pm.StackLocals.FirstOrDefault(sl => sl.Type.Index == appType.Index);
-                if (_game == null)
-                    return null;
-                var game = new ValuePointer(_game);
-                var screenManager = game["<ScreenManager>k__BackingField"].Value;
-                var screens = screenManager["screens"].Value.ForceCast(listType);
-                return screens["_items"].Value;
-            } catch {
+        static ArrayPointer? GetScreenArray (ValuePointer app, ClrType listType, ClrType screenType) {
+            var screenManager = app["<ScreenManager>k__BackingField"];
+            if (!screenManager.HasValue)
                 return null;
-            }
+
+            var screens = screenManager.Value["screens"];
+            if (!screens.HasValue)
+                return null;
+
+            var screensList = screens.Value.ForceCast(listType);
+            var screensArray = screensList["_items"].Value.ForceCast("System.Object[]");
+            return new ArrayPointer(screensArray, screenType);
         }
 
         static void Main (string[] args) {
@@ -30,6 +30,7 @@ namespace CLRMemoryMangler {
             using (var pm = AttachToProcess("bastion")) {
                 var primaryAppDomain = pm.Runtime.AppDomains.First();
                 var tApp = pm.Heap.GetTypeByName("GSGE.App");
+                var fSingletonApp = tApp.GetStaticFieldByName("SingletonApp");
                 var tList = 
                     // CLR 4.x
                     pm.Heap.GetTypeByName("System.Collections.Generic.List<T>")
@@ -40,16 +41,11 @@ namespace CLRMemoryMangler {
                 var fWorldState = tWorld.GetStaticFieldByName("m_state");
                 var tWorldState = pm.Heap.GetTypeByName("GSGE.World+State");
                 var fMapName = tWorldState.GetFieldByName("<MapName>k__BackingField");
+                var tLoadScreen = pm.Heap.GetTypeByName("GSGE.Code.GUI.LoadScreen");
+                var tScreen = pm.Heap.GetTypeByName("GSGE.GameScreen");
 
                 if (fWorldState.GetFieldAddress(primaryAppDomain) == 0)
                     Console.WriteLine("Static fields not accessible. Make sure Bastion is running under CLR 4.0, not 2.0.");
-
-                var tLoadScreen = pm.Heap.GetTypeByName("GSGE.Code.GUI.LoadScreen");
-
-                if (pm.Control != null) {
-                    pm.Control.SetExecutionStatus(DEBUG_STATUS.GO);
-                    pm.Control.WaitForEvent(DEBUG_WAIT.DEFAULT, 5000);
-                }
 
                 int wasLoading = 0;
                 string previousMapName = null;
@@ -59,31 +55,41 @@ namespace CLRMemoryMangler {
 
                     int isLoading = 0;
 
-                    var screenItems = GetScreenArray(pm, tApp, tList);
+                    // Find the app singleton in a static local
+                    var singletonAppAddress = (ulong)fSingletonApp.GetFieldValue(primaryAppDomain);
+                    if (pm.Heap.GetObjectType(singletonAppAddress).Index == tApp.Index) {
+                        var app = new ValuePointer(singletonAppAddress, tApp);
 
-                    if (screenItems.HasValue) {
-                        try {
-                            screenItems.Value.EnumerateReferences((u, i) => {
-                                var _v = pm[u];
-                                if (!_v.HasValue)
-                                    return;
+                        // Now pull out the screen array from the app's screenmanager
+                        var screenItems = GetScreenArray(app, tList, tScreen);
 
-                                var t = _v.Value.Type;
+                        if (screenItems.HasValue) {
+                            // Scan through all the active screens to find a loading screen
+                            for (int i = 0; i < screenItems.Value.Count; i++) {
+                                var screen = screenItems.Value[i];
+                                
+                                // Null so we're at the end of the list
+                                if (!screen.HasValue)
+                                    break;
 
-                                if (t.Index == tLoadScreen.Index)
+                                // Found one
+                                if (screen.Value.Type.Index == tLoadScreen.Index) {
                                     Interlocked.Add(ref isLoading, 1);
-                            });
+                                    break;
+                                }
+                            }
 
                             if (isLoading != wasLoading) {
                                 wasLoading = isLoading;
                                 Console.WriteLine("Now {0}", (isLoading == 1) ? "loading" : "playing");
                             }
-                        } catch {
                         }
                     }
 
+                    // Find the static field containing the current world state
                     var worldState = fWorldState.GetFieldValue(primaryAppDomain);
                     if (worldState != null) {
+                        // Figure out the map name
                         var mapName = (string)fMapName.GetFieldValue((ulong)worldState);
 
                         if (mapName != previousMapName) {

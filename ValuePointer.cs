@@ -30,16 +30,22 @@ namespace CLRMemoryMangler {
                 if (field == null)
                     throw new Exception("No field with this name");
 
+                ulong address;
+
                 if (field.IsObjectReference()) {
                     var fieldValue = field.GetFieldValue(Address);
                     if (fieldValue == null)
                         return null;
 
-                    return new ValuePointer((ulong)fieldValue, field.Type);
+                    address = (ulong)fieldValue;
                 } else {
-                    var fa = field.GetFieldAddress(Address, false);
-                    return new ValuePointer(fa, field.Type);
+                    address = field.GetFieldAddress(Address, false);
                 }
+
+                if (address == 0)
+                    return null;
+
+                return new ValuePointer(address, field.Type);
             }
         }
 
@@ -69,6 +75,38 @@ namespace CLRMemoryMangler {
 
         public override string ToString () {
             return String.Format("<{0:X8} {1}>", Address, Type.Name);
+        }
+    }
+
+    public struct ArrayPointer {
+        public readonly ValuePointer Value;
+        public readonly ClrType ElementType;
+
+        public ArrayPointer (ValuePointer value, ClrType elementType) {
+            Value = value;
+            ElementType = elementType;
+        }
+
+        public int Count {
+            get {                
+                return Value.Type.GetArrayLength(Value.Address);
+            }
+        }
+
+        public ValuePointer? this[int index] {
+            get {
+                ulong address;
+                if (ElementType.IsObjectReference)
+                    address = (ulong)Value.Type.GetArrayElementValue(Value.Address, index);
+                else
+                    address = Value.Type.GetArrayElementAddress(Value.Address, index);
+
+                var elementType = ElementType.Heap.GetObjectType(address);
+                if (elementType != null)
+                    return new ValuePointer(address, elementType);
+                else
+                    return null;
+            }
         }
     }
 }

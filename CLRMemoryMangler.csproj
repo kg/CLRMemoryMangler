@@ -61,8 +61,10 @@
     <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ProcessMangler.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Upstream\Options.cs" />
+    <Compile Include="ValuePointer.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Properties\" />
